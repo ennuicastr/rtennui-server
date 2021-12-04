@@ -1,0 +1,26 @@
+{
+  "name": "rtennui-server",
+  "version": "0.0.1",
+  "description": "The server for RTEnnui",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "webrtc",
+    "chat",
+    "voice",
+    "video"
+  ],
+  "author": "Yahweasel",
+  "license": "ISC",
+  "dependencies": {
+    "rtennui": "file:../rtennui",
+    "typescript": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.10",
+    "ws": "^8.3.0"
+  }
+}
