@@ -14,48 +14,154 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+import * as util from "./util.js";
+
 import rte from "rtennui/rtennui.min.js";
 const prot = rte.protocol;
+import wrtc from "wrtc";
 
 /**
  * An individual in a room. Only used internally.
  */
 class Member {
     constructor(
+        /**
+         * The room this member is in.
+         */
         public room: Room,
+
+        /**
+         * The ID of this member.
+         */
         public id: number,
+
+        /**
+         * The reliable socket for this member.
+         */
         public socket: WebSocket,
+
+        /**
+         * Formats this user can transmit.
+         */
         public transmit: string[],
+
+        /**
+         * Formats this user can receive.
+         */
         public receive: string[]
     ) {
         this.name = "";
         this.receiveSet = new Set(receive);
         this.streamId = -1;
         this.stream = null;
+        this.unreliable = null;
+        this.unreliableMakingOffer = false;
+        this.unreliableIgnoreOffer = false;
 
-        socket.onmessage = ev => this.onReliableMessage(ev);
+        const peer = this.unreliableP =
+            <RTCPeerConnection> new wrtc.RTCPeerConnection({
+                iceServers: util.iceServers
+            });
+
+        socket.onmessage = ev => this.onMessage(ev);
+
+        peer.onnegotiationneeded = async ev => {
+            // Perfect negotiation pattern
+            try {
+                this.unreliableMakingOffer = true;
+                await peer.setLocalDescription(
+                    await peer.createOffer());
+
+                const p = prot.parts.rtc;
+                const info = Buffer.from(JSON.stringify(
+                    {description: peer.localDescription}
+                ));
+                const msg = Buffer.alloc(p.length + info.length);
+                msg.writeUInt16LE(65535, 0);
+                msg.writeUInt16LE(prot.ids.rtc, 2);
+                info.copy(msg, p.data);
+                this.socket.send(msg);
+
+            } catch (ex) {
+                this.close();
+
+            }
+
+            this.unreliableMakingOffer = false;
+        };
+
+        peer.onicecandidate = ev => {
+            const p = prot.parts.rtc;
+            const info = Buffer.from(JSON.stringify(
+                {candidate: ev.candidate}
+            ));
+            const msg = Buffer.alloc(p.length + info.length);
+            msg.writeUInt16LE(65535, 0);
+            msg.writeUInt16LE(prot.ids.rtc, 2);
+            info.copy(msg, p.data);
+
+            try {
+                this.socket.send(msg);
+            } catch (ex) {
+                this.close();
+            }
+        };
+
+        peer.ondatachannel = ev => {
+            const chan = ev.channel;
+            chan.binaryType = "arraybuffer";
+
+            chan.addEventListener("open", () => {
+                this.unreliable = chan;
+            }, {once: true});
+
+            chan.addEventListener("close", () => {
+                if (this.unreliable === chan)
+                    this.unreliable = null;
+            }, {once: true});
+
+            chan.onmessage = ev => this.onUnreliableMessage(ev);
+        };
     }
 
     /**
      * Disconnect this member.
      */
     close() {
-        console.error(new Error().stack);
         this.socket.close();
+        if (this.unreliable)
+            this.unreliable.close();
         this.room.removeMember(this);
+
+        this.socket = null;
+        this.unreliable = null;
     }
 
     /**
-     * Called when a message is received over the reliable socket.
+     * Called when a message is received. Called directly for reliable,
+     * indirectly for unreliable.
      */
-    onReliableMessage(ev: MessageEvent) {
+    onMessage(ev: MessageEvent, reliable = true) {
         const msg = new Buffer(ev.data);
         if (msg.length < 4)
             return this.close();
-        const peer = msg.readInt16LE(0);
+        const peer = msg.readUInt16LE(0);
         const cmd = msg.readUInt16LE(2);
 
         switch (cmd) {
+            case prot.ids.rtc:
+            {
+                const p = prot.parts.rtc;
+                if (msg.length < p.length)
+                    return this.close();
+                if (peer !== 65535 /* max uint16 */)
+                    return this.close();
+
+                // RTC connection to *us*
+                this.rtcMessage(msg);
+                break;
+            }
+
             case prot.ids.stream:
             {
                 const p = prot.parts.stream;
@@ -105,10 +211,120 @@ class Member {
         }
     }
 
+    /**
+     * Called when a message is received on the unreliable socket.
+     */
+    onUnreliableMessage(ev: MessageEvent) {
+        const msg = new Buffer(ev.data);
+        if (msg.length < 4)
+            return this.close();
+        const cmd = msg.readUInt16LE(2);
+
+        // Only data is allowed on the unreliable socket
+        if (cmd !== prot.ids.data)
+            return this.close();
+
+        this.onMessage(ev, false);
+    }
+
+    /**
+     * Handler for RTC negotiation with the client.
+     */
+    async rtcMessage(msg: Buffer) {
+        const p = prot.parts.rtc;
+        let data: any = null;
+        try {
+            data = JSON.parse(msg.toString("utf8", p.data));
+        } catch (ex) {}
+        if (typeof data !== "object" || data === null)
+            return this.close();
+
+        const peer: RTCPeerConnection = this.unreliableP;
+        if (!peer)
+            return;
+
+        // Perfect negotiation pattern
+        try {
+            if (data.description) {
+                const ignoreOffer = this.unreliableIgnoreOffer =
+                    (data.description.type === "offer") &&
+                    (this.unreliableMakingOffer ||
+                     peer.signalingState !== "stable");
+
+                if (ignoreOffer)
+                    return;
+
+                await peer.setRemoteDescription(data.description);
+                if (data.description.type === "offer") {
+                    await peer.setLocalDescription(
+                        await peer.createAnswer());
+
+                    const info = Buffer.from(JSON.stringify(
+                        {description: peer.localDescription}
+                    ));
+                    const msg = Buffer.alloc(p.length + info.length);
+                    msg.writeUInt16LE(65535, 0);
+                    msg.writeUInt16LE(prot.ids.rtc, 2);
+                    info.copy(msg, p.data);
+                    this.socket.send(msg);
+                }
+
+            } else if (data.candidate) {
+                try {
+                    await peer.addIceCandidate(data.candidate);
+                } catch (ex) {
+                    if (!this.unreliableIgnoreOffer)
+                        throw ex;
+                }
+
+            }
+
+        } catch (ex) {
+            this.close();
+
+        }
+    }
+
+    /**
+     * The unreliable connection for this user.
+     */
+    unreliable: RTCDataChannel;
+
+    /**
+     * The associated RTC connection.
+     */
+    unreliableP: RTCPeerConnection;
+
+    /**
+     * Perfect negotiation: Are we currently making an offer?
+     */
+    unreliableMakingOffer: boolean;
+
+    /**
+     * Perfect negotiation: Are we currently ignoring offers?
+     */
+    unreliableIgnoreOffer: boolean;
+
+    /**
+     * This user's name (NOT USED YET)
+     */
     name: string;
+
+    /**
+     * Formats this user can receive, as a set.
+     */
     receiveSet: Set<string>;
+
+    /**
+     * The ID of the stream this user is currently transmitting, or -1 for no
+     * stream.
+     */
     streamId: number;
-    stream: string[];
+
+    /**
+     * The stream metadata for this user.
+     */
+    stream: any[];
 }
 
 export class Room {
@@ -212,8 +428,11 @@ export class Room {
             if (i === except)
                 continue;
             const member = this._members[i];
-            // FIXME: Reliability
-            member.socket.send(msg);
+
+            if (!reliable && member.unreliable)
+                member.unreliable.send(msg);
+            else
+                member.socket.send(msg);
         }
     }
 
