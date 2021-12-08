@@ -385,7 +385,10 @@ export class Room {
             socket.send(msg.buffer);
         }
 
-        // And tell everyone else about them
+        // Finish resolving the formats
+        this._resolveFormats();
+
+        // Tell everyone else about them
         {
             const p = prot.parts.peer;
             const info = Buffer.from('{"name":""}');
@@ -397,8 +400,43 @@ export class Room {
             this.relay(msg, {except: idx});
         }
 
-        // Finish resolving the formats
-        this._resolveFormats();
+        // And tell them about everyone else
+        for (let oidx = 0; oidx < this._members.length; oidx++) {
+            if (idx === oidx)
+                continue;
+
+            const other = this._members[oidx];
+
+            if (!other)
+                continue;
+
+            {
+                const p = prot.parts.peer;
+                const info = Buffer.from('{"name":""}');
+                const msg = Buffer.alloc(p.length + info.length);
+                msg.writeUInt16LE(oidx, 0);
+                msg.writeUInt16LE(prot.ids.peer, 2);
+                msg.writeUInt8(1, p.status);
+                info.copy(msg, p.data);
+                socket.send(msg);
+            }
+
+            // And their stream
+            if (!other.stream)
+                continue;
+
+            try {
+                const p = prot.parts.stream;
+                const info = Buffer.from(JSON.stringify(
+                    other.stream));
+                const msg = Buffer.alloc(p.length + info.length);
+                msg.writeUInt16LE(oidx, 0);
+                msg.writeUInt16LE(prot.ids.stream, 2);
+                msg.writeUInt8(other.streamId, p.id);
+                info.copy(msg, p.data);
+                socket.send(msg);
+            } catch (ex) {}
+        }
     }
 
     /**
@@ -408,7 +446,7 @@ export class Room {
         const idx = this._members.indexOf(member);
         if (idx < 0)
             return;
-        this._members.splice(idx, 1);
+        this._members[idx] = null;
 
         // ...
     }
