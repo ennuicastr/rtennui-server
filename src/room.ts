@@ -65,6 +65,7 @@ class Member {
             });
 
         socket.onmessage = ev => this.onMessage(ev);
+        socket.onclose = () => this.close();
 
         peer.onnegotiationneeded = async ev => {
             // Perfect negotiation pattern
@@ -383,11 +384,7 @@ export class Room {
 
         // Ack them
         {
-            const msg = net.createPacket(
-                prot.parts.ack.length,
-                idx, prot.ids.ack,
-                []
-            );
+            const msg = net.createPacket(4, idx, prot.ids.ack, []);
             socket.send(msg.buffer);
         }
 
@@ -463,7 +460,21 @@ export class Room {
             return;
         this._members[idx] = null;
 
-        // ...
+        // Tell everybody else that they're gone
+        {
+            const p = prot.parts.peer;
+            const info = Buffer.from("{}");
+            const msg = net.createPacket(
+                p.length + info.length,
+                idx, prot.ids.peer,
+                [
+                    [p.status, 1, 0],
+                    [p.data, info]
+                ]
+            );
+
+            this.relay(msg);
+        }
     }
 
     /**
@@ -481,6 +492,8 @@ export class Room {
             if (i === except)
                 continue;
             const member = this._members[i];
+            if (!member)
+                continue;
 
             if (!reliable && member.unreliable)
                 member.unreliable.send(msg);
