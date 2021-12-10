@@ -14,6 +14,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+import * as net from "./net.js";
 import * as util from "./util.js";
 
 import rte from "rtennui/rtennui.min.js";
@@ -76,10 +77,11 @@ class Member {
                 const info = Buffer.from(JSON.stringify(
                     {description: peer.localDescription}
                 ));
-                const msg = Buffer.alloc(p.length + info.length);
-                msg.writeUInt16LE(65535, 0);
-                msg.writeUInt16LE(prot.ids.rtc, 2);
-                info.copy(msg, p.data);
+                const msg = net.createPacket(
+                    p.length + info.length,
+                    65535, prot.ids.rtc,
+                    [[p.data, info]]
+                );
                 this.socket.send(msg);
 
             } catch (ex) {
@@ -95,10 +97,11 @@ class Member {
             const info = Buffer.from(JSON.stringify(
                 {candidate: ev.candidate}
             ));
-            const msg = Buffer.alloc(p.length + info.length);
-            msg.writeUInt16LE(65535, 0);
-            msg.writeUInt16LE(prot.ids.rtc, 2);
-            info.copy(msg, p.data);
+            const msg = net.createPacket(
+                p.length + info.length,
+                65535, prot.ids.rtc,
+                [[p.data, info]]
+            );
 
             try {
                 this.socket.send(msg);
@@ -262,10 +265,11 @@ class Member {
                     const info = Buffer.from(JSON.stringify(
                         {description: peer.localDescription}
                     ));
-                    const msg = Buffer.alloc(p.length + info.length);
-                    msg.writeUInt16LE(65535, 0);
-                    msg.writeUInt16LE(prot.ids.rtc, 2);
-                    info.copy(msg, p.data);
+                    const msg = net.createPacket(
+                        p.length + info.length,
+                        65535, prot.ids.rtc,
+                        [[p.data, info]]
+                    );
                     this.socket.send(msg);
                 }
 
@@ -379,9 +383,11 @@ export class Room {
 
         // Ack them
         {
-            const msg = Buffer.alloc(4);
-            msg.writeUInt16LE(idx, 0);
-            msg.writeUInt16LE(prot.ids.ack, 2);
+            const msg = net.createPacket(
+                prot.parts.ack.length,
+                idx, prot.ids.ack,
+                []
+            );
             socket.send(msg.buffer);
         }
 
@@ -392,11 +398,14 @@ export class Room {
         {
             const p = prot.parts.peer;
             const info = Buffer.from('{"name":""}');
-            const msg = Buffer.alloc(p.length + info.length);
-            msg.writeUInt16LE(idx, 0);
-            msg.writeUInt16LE(prot.ids.peer, 2);
-            msg.writeUInt8(1, p.status);
-            info.copy(msg, p.data);
+            const msg = net.createPacket(
+                p.length + info.length,
+                idx, prot.ids.peer,
+                [
+                    [p.status, 1, 1],
+                    [p.data, info]
+                ]
+            );
             this.relay(msg, {except: idx});
         }
 
@@ -413,11 +422,14 @@ export class Room {
             {
                 const p = prot.parts.peer;
                 const info = Buffer.from('{"name":""}');
-                const msg = Buffer.alloc(p.length + info.length);
-                msg.writeUInt16LE(oidx, 0);
-                msg.writeUInt16LE(prot.ids.peer, 2);
-                msg.writeUInt8(1, p.status);
-                info.copy(msg, p.data);
+                const msg = net.createPacket(
+                    p.length + info.length,
+                    oidx, prot.ids.peer,
+                    [
+                        [p.status, 1, 1],
+                        [p.data, info]
+                    ]
+                );
                 socket.send(msg);
             }
 
@@ -429,11 +441,14 @@ export class Room {
                 const p = prot.parts.stream;
                 const info = Buffer.from(JSON.stringify(
                     other.stream));
-                const msg = Buffer.alloc(p.length + info.length);
-                msg.writeUInt16LE(oidx, 0);
-                msg.writeUInt16LE(prot.ids.stream, 2);
-                msg.writeUInt8(other.streamId, p.id);
-                info.copy(msg, p.data);
+                const msg = net.createPacket(
+                    p.length + info.length,
+                    oidx, prot.ids.stream,
+                    [
+                        [p.id, 1, other.streamId],
+                        [p.data, info]
+                    ]
+                );
                 socket.send(msg);
             } catch (ex) {}
         }
@@ -536,9 +551,11 @@ export class Room {
                 // Send them to everyone
                 const p = prot.parts.formats;
                 const formats = Buffer.from(JSON.stringify(r));
-                const buf = Buffer.alloc(p.length + formats.length);
-                buf.writeUInt16LE(prot.ids.formats, 2);
-                formats.copy(buf, p.data);
+                const buf = net.createPacket(
+                    p.length + formats.length,
+                    65535, prot.ids.formats,
+                    [[p.data, formats]]
+                );
                 for (const member of this._members) {
                     if (!member)
                         continue;
