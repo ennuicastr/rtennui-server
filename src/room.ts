@@ -53,6 +53,7 @@ class Member {
     ) {
         this.name = "";
         this.receiveSet = new Set(receive);
+        this.p2p = new Set();
         this.streamId = -1;
         this.stream = null;
         this.unreliable = null;
@@ -86,7 +87,7 @@ class Member {
                 this.socket.send(msg);
 
             } catch (ex) {
-                this.close();
+                //console.error(ex);
 
             }
 
@@ -132,7 +133,8 @@ class Member {
      * Disconnect this member.
      */
     close() {
-        this.socket.close();
+        if (this.socket)
+            this.socket.close();
         if (this.unreliable)
             this.unreliable.close();
         this.room.removeMember(this);
@@ -158,11 +160,30 @@ class Member {
                 const p = prot.parts.rtc;
                 if (msg.length < p.length)
                     return this.close();
-                if (peer !== 65535 /* max uint16 */)
-                    return this.close();
 
-                // RTC connection to *us*
-                this.rtcMessage(msg);
+                if (peer === 65535 /* max u16 */) {
+                    // RTC connection to *us*
+                    this.rtcMessage(msg);
+
+                } else {
+                    // RTC connection to another peer
+                    msg.writeUInt16LE(this.id, 0);
+                    this.room.send(peer, msg);
+
+                }
+                break;
+            }
+
+            case prot.ids.peer:
+            {
+                const p = prot.parts.peer;
+                if (msg.length < p.length)
+                    return this.close();
+                const status = !!msg.readUInt8(p.status);
+                if (status)
+                    this.p2p.add(peer);
+                else
+                    this.p2p.delete(peer);
                 break;
             }
 
@@ -199,14 +220,21 @@ class Member {
 
                 // Pass it on
                 msg.writeUInt16LE(this.id, 0);
-                this.room.relay(msg, {except: this.id});
+                this.room.relay(msg, {
+                    except: this.id,
+                    p2p: this.p2p
+                });
                 break;
             }
 
             case prot.ids.data:
                 // FIXME: Some validation
                 msg.writeUInt16LE(this.id, 0);
-                this.room.relay(msg, {except: this.id});
+                this.room.relay(msg, {
+                    except: this.id,
+                    reliable,
+                    p2p: this.p2p
+                });
                 break;
 
             default:
@@ -285,7 +313,7 @@ class Member {
             }
 
         } catch (ex) {
-            this.close();
+            //console.error(ex);
 
         }
     }
@@ -319,6 +347,11 @@ class Member {
      * Formats this user can receive, as a set.
      */
     receiveSet: Set<string>;
+
+    /**
+     * The peers to which this client has P2P connections.
+     */
+    p2p: Set<number>;
 
     /**
      * The ID of the stream this user is currently transmitting, or -1 for no
@@ -475,6 +508,23 @@ export class Room {
 
             this.relay(msg);
         }
+
+        // Forget any P2P info targetting them
+        for (const member of this._members) {
+            if (member)
+                member.p2p.delete(idx);
+        }
+    }
+
+    /**
+     * Send data to a given member.
+     */
+    send(peer: number, msg: Buffer) {
+        const member = this._members[peer];
+        if (!member)
+            return false;
+        member.socket.send(msg);
+        return true;
     }
 
     /**
@@ -482,17 +532,22 @@ export class Room {
      */
     relay(msg: Buffer, opts: {
         except?: number,
-        reliable?: boolean
+        reliable?: boolean,
+        p2p?: Set<number>
     } = {}) {
         const except = (typeof opts.except === "number") ? opts.except : -1;
         const reliable =
             (typeof opts.reliable === "boolean") ? opts.reliable : true;
+        const p2p = opts.p2p;
 
         for (let i = 0; i < this._members.length; i++) {
             if (i === except)
                 continue;
             const member = this._members[i];
             if (!member)
+                continue;
+
+            if (p2p && p2p.has(i))
                 continue;
 
             if (!reliable && member.unreliable)
