@@ -1,15 +1,20 @@
 (async function() {
     const ac = new AudioContext();
-    if (ac.state !== "running") {
-        const btn = document.createElement("button");
-        btn.innerText = "Join";
-        document.body.appendChild(btn);
-        await new Promise(res => btn.onclick = res);
-        document.body.removeChild(btn);
-        await ac.resume();
-    }
+    const btn = document.createElement("button");
+    btn.innerText = "Join";
+    document.body.appendChild(btn);
+    await new Promise(res => btn.onclick = res);
+    document.body.removeChild(btn);
 
-    const ms = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+    if (ac.state !== "running")
+        await ac.resume();
+
+    let ms;
+    try {
+        ms = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+    } catch (ex) {
+        ms = await navigator.mediaDevices.getUserMedia({audio: true});
+    }
 
     const url = new URL(document.location.href);
     const room = url.searchParams.get("room") || "RTEnnui";
