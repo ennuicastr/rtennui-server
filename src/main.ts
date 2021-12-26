@@ -19,8 +19,19 @@ const prot = rte.protocol;
 
 import * as room from "./room.js";
 
+/**
+ * The RTEnnui server. There should be one instance of this for an entire
+ * system.
+ */
 export class RTEnnuiServer {
-    constructor(private _acceptLogin: (credentials: any) => Promise<string>) {
+    constructor(
+        /**
+         * Function to call to accept (or reject) a login, given its
+         * credentials. Should return a room, or null to reject the login. If
+         * no room exists with the given name, one will be created.
+         */
+        private _acceptLogin: (credentials: any) => Promise<string>
+    ) {
         this._rooms = Object.create(null);
     }
 

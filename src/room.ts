@@ -23,31 +23,37 @@ import wrtc from "wrtc";
 
 /**
  * An individual in a room. Only used internally.
+ * @private
  */
 class Member {
     constructor(
         /**
          * The room this member is in.
+         * @private
          */
         public room: Room,
 
         /**
          * The ID of this member.
+         * @private
          */
         public id: number,
 
         /**
          * The reliable socket for this member.
+         * @private
          */
         public socket: WebSocket,
 
         /**
          * Formats this user can transmit.
+         * @private
          */
         public transmit: string[],
 
         /**
          * Formats this user can receive.
+         * @private
          */
         public receive: string[]
     ) {
@@ -131,6 +137,7 @@ class Member {
 
     /**
      * Disconnect this member.
+     * @private
      */
     close() {
         if (this.socket)
@@ -146,6 +153,7 @@ class Member {
     /**
      * Called when a message is received. Called directly for reliable,
      * indirectly for unreliable.
+     * @private
      */
     onMessage(ev: MessageEvent, reliable = true) {
         const msg = new Buffer(ev.data);
@@ -245,6 +253,7 @@ class Member {
 
     /**
      * Called when a message is received on the unreliable socket.
+     * @private
      */
     onUnreliableMessage(ev: MessageEvent) {
         const msg = new Buffer(ev.data);
@@ -261,6 +270,7 @@ class Member {
 
     /**
      * Handler for RTC negotiation with the client.
+     * @private
      */
     async rtcMessage(msg: Buffer) {
         const p = prot.parts.rtc;
@@ -320,51 +330,63 @@ class Member {
 
     /**
      * The unreliable connection for this user.
+     * @private
      */
     unreliable: RTCDataChannel;
 
     /**
      * The associated RTC connection.
+     * @private
      */
     unreliableP: RTCPeerConnection;
 
     /**
      * Perfect negotiation: Are we currently making an offer?
+     * @private
      */
     unreliableMakingOffer: boolean;
 
     /**
      * Perfect negotiation: Are we currently ignoring offers?
+     * @private
      */
     unreliableIgnoreOffer: boolean;
 
     /**
      * This user's name (NOT USED YET)
+     * @private
      */
     name: string;
 
     /**
      * Formats this user can receive, as a set.
+     * @private
      */
     receiveSet: Set<string>;
 
     /**
      * The peers to which this client has P2P connections.
+     * @private
      */
     p2p: Set<number>;
 
     /**
      * The ID of the stream this user is currently transmitting, or -1 for no
      * stream.
+     * @private
      */
     streamId: number;
 
     /**
      * The stream metadata for this user.
+     * @private
      */
     stream: any[];
 }
 
+/**
+ * A single room, with all its members.
+ */
 export class Room {
     constructor() {
         this._members = [];
@@ -486,6 +508,7 @@ export class Room {
 
     /**
      * Remove a member from this room.
+     * @param member  Member to remove.
      */
     removeMember(member: Member) {
         const idx = this._members.indexOf(member);
@@ -518,6 +541,8 @@ export class Room {
 
     /**
      * Send data to a given member.
+     * @param peer  Member to send to, by number.
+     * @param msg  Message to send.
      */
     send(peer: number, msg: Buffer) {
         const member = this._members[peer];
@@ -529,6 +554,8 @@ export class Room {
 
     /**
      * Relay data to all members in the room.
+     * @param msg  Message to send.
+     * @param opts  Send options.
      */
     relay(msg: Buffer, opts: {
         except?: number,
