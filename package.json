@@ -1,6 +1,6 @@
 {
   "name": "rtennui-server",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "The server for RTEnnui",
   "main": "index.js",
   "type": "module",
@@ -20,7 +20,7 @@
   "author": "Yahweasel",
   "license": "ISC",
   "dependencies": {
-    "rtennui": "file:../rtennui",
+    "rtennui": "^0.1.0",
     "wrtc": "^0.4.7",
     "ws": "^8.3.0"
   },

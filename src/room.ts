@@ -17,7 +17,7 @@
 import * as net from "./net.js";
 import * as util from "./util.js";
 
-import rte from "rtennui/rtennui.js";
+import rte from "rtennui/rtennui.min.js";
 const prot = rte.protocol;
 import wrtc from "wrtc";
 

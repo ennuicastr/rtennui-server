@@ -14,7 +14,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-import rte from "rtennui/rtennui.js";
+import rte from "rtennui/rtennui.min.js";
 const prot = rte.protocol;
 
 import * as room from "./room.js";
