@@ -20,6 +20,17 @@ const prot = rte.protocol;
 import * as room from "./room.js";
 
 /**
+ * A function to accept logins. Should return either an object with a `room`
+ * and `info` field or `null` to reject the login. The `room` field contains
+ * the string name of the room to join, and the `info` field contains any
+ * public information about the peer, such as their name.
+ */
+type AcceptLoginFunction = (credentials: any) => Promise<{
+    room: string,
+    info: any
+}>;
+
+/**
  * The RTEnnui server. There should be one instance of this for an entire
  * system.
  */
@@ -30,7 +41,7 @@ export class RTEnnuiServer {
          * credentials. Should return a room, or null to reject the login. If
          * no room exists with the given name, one will be created.
          */
-        private _acceptLogin: (credentials: any) => Promise<string>
+        private _acceptLogin: AcceptLoginFunction
     ) {
         this._rooms = Object.create(null);
     }
@@ -81,14 +92,14 @@ export class RTEnnuiServer {
             return die();
 
         // Check the credentials
-        const roomID = await this._acceptLogin(login.credentials);
-        if (!roomID)
+        const accept = await this._acceptLogin(login.credentials);
+        if (!accept || !accept.room)
             return die();
 
         // Check for a room
-        if (!(roomID in this._rooms))
-            this._rooms[roomID] = new room.Room();
-        this._rooms[roomID].accept(socket, login);
+        if (!(accept.room in this._rooms))
+            this._rooms[accept.room] = new room.Room();
+        this._rooms[accept.room].accept(socket, login, accept.info);
     }
 
     /**

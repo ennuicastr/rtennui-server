@@ -1,9 +1,16 @@
 (async function() {
     const ac = new AudioContext();
+
+    const nm = document.createElement("input");
+    nm.value = "Anonymous";
+    document.body.appendChild(nm);
+
     const btn = document.createElement("button");
     btn.innerText = "Join";
     document.body.appendChild(btn);
+
     await new Promise(res => btn.onclick = res);
+    document.body.removeChild(nm);
     document.body.removeChild(btn);
 
     if (ac.state !== "running")
@@ -47,10 +54,19 @@
     });
 
     conn.on("*", ev => {
-        console.log(ev.event + ": " + ev.arg);
+        let str;
+        try {
+            str = JSON.stringify(ev.arg);
+        } catch (ex) {
+            str = "" + ev.arg;
+        }
+        console.log(ev.event + ": " + str);
     });
 
-    await conn.connect("/ws", {room});
+    await conn.connect("/ws", {
+        room,
+        info: {name: nm.value}
+    });
 
     const audio = await RTEnnui.createAudioCapture(ac, ms);
     conn.addAudioTrack(audio);

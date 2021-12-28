@@ -70,8 +70,11 @@ function onUpgrade(req, sock, head) {
 /**
  * Accept logins from the client. There is no verification here, so all logins
  * are accepted.
- * @param credentials  Login credentials
+ * @param credentials  Login credentials.
  */
 function acceptLogin(credentials) {
-    return Promise.resolve(credentials.room || "RTEnnui");
+    return Promise.resolve({
+        room: credentials.room || "RTEnnui",
+        info: credentials.info || {name: "Anonymous"}
+    });
 }

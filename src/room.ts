@@ -40,6 +40,12 @@ class Member {
         public id: number,
 
         /**
+         * The public info for this member, as a buffer.
+         * @private
+         */
+        public info: Buffer,
+
+        /**
          * The reliable socket for this member.
          * @private
          */
@@ -57,7 +63,6 @@ class Member {
          */
         public receive: string[]
     ) {
-        this.name = "";
         this.receiveSet = new Set(receive);
         this.p2p = new Set();
         this.streamId = -1;
@@ -353,12 +358,6 @@ class Member {
     unreliableIgnoreOffer: boolean;
 
     /**
-     * This user's name (NOT USED YET)
-     * @private
-     */
-    name: string;
-
-    /**
      * Formats this user can receive, as a set.
      * @private
      */
@@ -396,8 +395,9 @@ export class Room {
      * Accept a new connection into this room.
      * @param socket  The WebSocket.
      * @param login  Login information. Credentials have already been checked.
+     * @param info  Public information for this user.
      */
-    accept(socket: WebSocket, login: any) {
+    accept(socket: WebSocket, login: any, info: any) {
         function die() {
             socket.close();
         }
@@ -418,17 +418,10 @@ export class Room {
         if (idx >= this._members.length)
             this._members.push(null);
 
-        // Choose a name for them
-        let name: string = "" + (idx+1);
-        try {
-            if (login.credentials.name)
-                name = "" + login.credentials.name;
-        } catch (ex) {}
-
         // Make the member
         const member = this._members[idx] =
-            new Member(this, idx, socket, t, r);
-        member.name = name;
+            new Member(this, idx, Buffer.from(JSON.stringify(info)), socket, t,
+                r);
 
         // Make sure we have *something* in common
         if (!this._resolveFormats({dryRun: true})) {
@@ -449,13 +442,12 @@ export class Room {
         // Tell everyone else about them
         {
             const p = prot.parts.peer;
-            const info = Buffer.from('{"name":""}');
             const msg = net.createPacket(
-                p.length + info.length,
+                p.length + member.info.length,
                 idx, prot.ids.peer,
                 [
                     [p.status, 1, 1],
-                    [p.data, info]
+                    [p.data, member.info]
                 ]
             );
             this.relay(msg, {except: idx});
@@ -473,13 +465,12 @@ export class Room {
 
             {
                 const p = prot.parts.peer;
-                const info = Buffer.from('{"name":""}');
                 const msg = net.createPacket(
-                    p.length + info.length,
+                    p.length + other.info.length,
                     oidx, prot.ids.peer,
                     [
                         [p.status, 1, 1],
-                        [p.data, info]
+                        [p.data, other.info]
                     ]
                 );
                 socket.send(msg);

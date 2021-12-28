@@ -28,11 +28,17 @@
     });
 
     conn.on("*", ev => {
-        console.log(ev.event + ": " + ev.arg);
+        let str;
+        try {
+            str = JSON.stringify(ev);
+        } catch (ex) {
+            str = "" + ev;
+        }
+        console.log(ev.event + ": " + str);
     });
 
     await conn.connect("/rtennui/ws", {room});
 
     const audio = await RTEnnui.createAudioCapture(ac, ms);
-    conn.addAudioTrack(audio);
+    conn.addAudioTrack(audio, {frameSize: 5000});
 })();
