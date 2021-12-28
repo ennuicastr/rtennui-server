@@ -1,8 +1,9 @@
 {
   "name": "rtennui-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The server for RTEnnui",
-  "main": "index.js",
+  "main": "src/main.js",
+  "types": "src/main.ts",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
