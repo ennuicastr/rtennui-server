@@ -1,8 +1,9 @@
-const fs = require("fs");
 const rte = await import(process.env.HOME + "/rtennui-server/src/main.js");
 
-if (!module.rtes)
+if (!module.rtes) {
+    module.ondisconnect = () => process.exit(0);
     module.rtes = new rte.RTEnnuiServer(acceptLogin);
+}
 const rtes = module.rtes;
 
 rtes.acceptConnection(sock);
@@ -13,5 +14,8 @@ rtes.acceptConnection(sock);
  * @param credentials  Login credentials
  */
 function acceptLogin(credentials) {
-    return Promise.resolve(credentials.room || "RTEnnui");
+    return Promise.resolve({
+        room: credentials.room || "RTEnnui",
+        info: null
+    });
 }
