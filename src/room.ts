@@ -622,7 +622,8 @@ export class Room {
                     break;
             }
 
-            if (!v || !a) {
+            //if (!v || !a) {
+            if (!a) {
                 success = false;
                 break;
             }
