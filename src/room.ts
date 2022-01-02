@@ -235,8 +235,7 @@ class Member {
                 // Pass it on
                 msg.writeUInt16LE(this.id, 0);
                 this.room.relay(msg, {
-                    except: this.id,
-                    p2p: this.p2p
+                    except: this.id
                 });
                 break;
             }
