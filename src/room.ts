@@ -23,6 +23,13 @@ const prot = rte.protocol;
 import wrtc from "wrtc";
 
 /**
+ * A room container (really just main).
+ */
+export interface RoomContainer {
+    roomEmpty(r: Room): void;
+}
+
+/**
  * An individual in a room. Only used internally.
  * @private
  */
@@ -71,6 +78,7 @@ class Member {
         this.unreliable = null;
         this.unreliableMakingOffer = false;
         this.unreliableIgnoreOffer = false;
+        this.closed = false;
 
         const peer = this.unreliableP =
             <RTCPeerConnection> new wrtc.RTCPeerConnection({
@@ -81,6 +89,9 @@ class Member {
         socket.onclose = () => this.close();
 
         peer.onnegotiationneeded = async ev => {
+            if (this.closed)
+                return;
+
             // Perfect negotiation pattern
             try {
                 this.unreliableMakingOffer = true;
@@ -107,6 +118,9 @@ class Member {
         };
 
         peer.onicecandidate = ev => {
+            if (this.closed)
+                return;
+
             const p = prot.parts.rtc;
             const info = Buffer.from(JSON.stringify(
                 {candidate: ev.candidate}
@@ -125,6 +139,9 @@ class Member {
         };
 
         peer.ondatachannel = ev => {
+            if (this.closed)
+                return;
+
             const chan = ev.channel;
             chan.binaryType = "arraybuffer";
 
@@ -146,6 +163,7 @@ class Member {
      * @private
      */
     close() {
+        this.closed = true;
         if (this.socket)
             this.socket.close();
         if (this.unreliable)
@@ -381,13 +399,29 @@ class Member {
      * @private
      */
     stream: any[];
+
+    /**
+     * Has this user's connection been closed?
+     * @private
+     */
+    closed: boolean;
 }
 
 /**
  * A single room, with all its members.
  */
 export class Room {
-    constructor() {
+    constructor(
+        /**
+         * ID for this room. Only really used by surrounding context.
+         */
+        public id: string,
+
+        /**
+         * Container for this room. Who the room reports to when it's empty.
+         */
+        public container: RoomContainer
+    ) {
         this._members = [];
     }
 
@@ -528,6 +562,18 @@ export class Room {
             if (member)
                 member.p2p.delete(idx);
         }
+
+        /* Report the current number of members so the main process can delete
+         * this room */
+        let ct = 0;
+        for (const member of this._members) {
+            if (member) {
+                ct++;
+                break;
+            }
+        }
+        if (!ct)
+            this.container.roomEmpty(this);
     }
 
     /**

@@ -99,8 +99,15 @@ export class RTEnnuiServer {
 
         // Check for a room
         if (!(accept.room in this._rooms))
-            this._rooms[accept.room] = new room.Room();
+            this._rooms[accept.room] = new room.Room(accept.room, this);
         this._rooms[accept.room].accept(socket, login, accept.info);
+    }
+
+    /**
+     * Called when a room is empty to destroy it.
+     */
+    roomEmpty(r: room.Room) {
+        delete this._rooms[r.id];
     }
 
     /**
