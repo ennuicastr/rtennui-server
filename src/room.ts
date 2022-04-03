@@ -80,13 +80,17 @@ class Member {
         this.unreliableIgnoreOffer = false;
         this.closed = false;
 
+        // Prepare for disconnection
+        socket.addEventListener("close", () => this.close());
+        socket.addEventListener("error", () => this.close());
+
+        // Open an unreliable connection
         const peer = this.unreliableP =
             <RTCPeerConnection> new wrtc.RTCPeerConnection({
                 iceServers: util.iceServers
             });
 
         socket.onmessage = ev => this.onMessage(ev);
-        socket.onclose = () => this.close();
 
         peer.onnegotiationneeded = async ev => {
             if (this.closed)
@@ -163,6 +167,8 @@ class Member {
      * @private
      */
     close() {
+        if (this.closed)
+            return;
         this.closed = true;
         if (this.socket)
             this.socket.close();
