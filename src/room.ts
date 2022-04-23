@@ -93,8 +93,10 @@ class Member {
         socket.onmessage = ev => this.onMessage(ev);
 
         peer.onnegotiationneeded = async ev => {
-            if (this.closed)
+            if (this.closed) {
+                peer.close();
                 return;
+            }
 
             // Perfect negotiation pattern
             try {
@@ -122,8 +124,10 @@ class Member {
         };
 
         peer.onicecandidate = ev => {
-            if (this.closed)
+            if (this.closed) {
+                peer.close();
                 return;
+            }
 
             const p = prot.parts.rtc;
             const info = Buffer.from(JSON.stringify(
@@ -143,8 +147,10 @@ class Member {
         };
 
         peer.ondatachannel = ev => {
-            if (this.closed)
+            if (this.closed) {
+                peer.close();
                 return;
+            }
 
             const chan = ev.channel;
             chan.binaryType = "arraybuffer";
@@ -174,6 +180,8 @@ class Member {
             this.socket.close();
         if (this.unreliable)
             this.unreliable.close();
+        if (this.unreliableP)
+            this.unreliableP.close();
         this.room.removeMember(this);
 
         this.socket = null;
