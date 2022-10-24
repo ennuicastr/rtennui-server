@@ -78,6 +78,7 @@ class Member {
         this.unreliable = null;
         this.unreliableMakingOffer = false;
         this.unreliableIgnoreOffer = false;
+        this.reliabilityProber = null;
         this.closed = false;
 
         // Prepare for disconnection
@@ -157,11 +158,17 @@ class Member {
 
             chan.addEventListener("open", () => {
                 this.unreliable = chan;
+                this.reliability = true;
+                this.reliabilityProber = new rte.ReliabilityProber(
+                    chan, true, reliable => this.onReliability(reliable));
             }, {once: true});
 
             chan.addEventListener("close", () => {
-                if (this.unreliable === chan)
+                if (this.unreliable === chan) {
                     this.unreliable = null;
+                    this.reliabilityProber.stop();
+                    this.reliabilityProber = null;
+                }
             }, {once: true});
 
             chan.onmessage = ev => this.onUnreliableMessage(ev);
@@ -272,6 +279,12 @@ class Member {
                 break;
             }
 
+            case prot.ids.info:
+                // FIXME: Some validation
+                msg.writeUInt16LE(this.id, 0);
+                this.room.send(peer, msg);
+                break;
+
             case prot.ids.data:
                 // FIXME: Some validation
                 msg.writeUInt16LE(this.id, 0);
@@ -298,11 +311,33 @@ class Member {
             return this.close();
         const cmd = msg.readUInt16LE(2);
 
-        // Only data is allowed on the unreliable socket
-        if (cmd !== prot.ids.data)
-            return this.close();
+        switch (cmd) {
+            case prot.ids.rping:
+                // Pong on the same channel (FIXME: flooding)
+                if (msg.length < 8)
+                    return this.close();
+                msg.writeUInt16LE(2, prot.ids.rpong);
+                this.unreliable.send(msg);
+                break;
 
-        this.onMessage(ev, false);
+            case prot.ids.data:
+                // Can be sent unreliably or reliably
+                this.onMessage(ev, false);
+                break;
+
+            default:
+                // No other types allowed
+                return this.close();
+        }
+    }
+
+    /**
+     * Called when the reliability prober updates the reliability status of
+     * the unreliable channel.
+     * @private
+     */
+    onReliability(reliable: boolean) {
+        this.reliability = reliable;
     }
 
     /**
@@ -388,6 +423,18 @@ class Member {
      * @private
      */
     unreliableIgnoreOffer: boolean;
+
+    /**
+     * Prober for whether the unreliable connection is actually reliable.
+     * @private
+     */
+    reliabilityProber: rte.ReliabilityProber;
+
+    /**
+     * Set to true of the unreliable connection is actually reliable.
+     * @private
+     */
+    reliability: boolean;
 
     /**
      * Formats this user can receive, as a set.
@@ -628,7 +675,7 @@ export class Room {
             if (p2p && p2p.has(i))
                 continue;
 
-            if (!reliable && member.unreliable)
+            if (!reliable && member.unreliable && member.reliability)
                 member.unreliable.send(msg);
             else
                 member.socket.send(msg);
