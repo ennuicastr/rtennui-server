@@ -320,6 +320,10 @@ class Member {
                 this.unreliable.send(msg);
                 break;
 
+            case prot.ids.rpong:
+                // This is their response to our ping, handled elsewhere
+                break;
+
             case prot.ids.data:
                 // Can be sent unreliably or reliably
                 this.onMessage(ev, false);
