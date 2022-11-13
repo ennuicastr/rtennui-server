@@ -156,13 +156,6 @@ class Member {
             const chan = ev.channel;
             chan.binaryType = "arraybuffer";
 
-            chan.addEventListener("open", () => {
-                this.unreliable = chan;
-                this.reliability = true;
-                this.reliabilityProber = new rte.ReliabilityProber(
-                    chan, true, reliable => this.onReliability(reliable));
-            }, {once: true});
-
             chan.addEventListener("close", () => {
                 if (this.unreliable === chan) {
                     this.unreliable = null;
@@ -172,6 +165,11 @@ class Member {
             }, {once: true});
 
             chan.onmessage = ev => this.onUnreliableMessage(ev);
+
+            this.unreliable = chan;
+            this.reliability = true;
+            this.reliabilityProber = new rte.ReliabilityProber(
+                chan, true, reliability => this.onReliability(reliability));
         };
     }
 
@@ -316,8 +314,8 @@ class Member {
                 // Pong on the same channel (FIXME: flooding)
                 if (msg.length < 8)
                     return this.close();
-                msg.writeUInt16LE(2, prot.ids.rpong);
-                this.unreliable.send(msg);
+                msg.writeUInt16LE(prot.ids.rpong, 2);
+                this.unreliable.send(Buffer.from(msg));
                 break;
 
             case prot.ids.rpong:
@@ -340,8 +338,8 @@ class Member {
      * the unreliable channel.
      * @private
      */
-    onReliability(reliable: boolean) {
-        this.reliability = reliable;
+    onReliability(reliability: rte.Reliability) {
+        this.reliability = (reliability === rte.Reliability.RELIABLE);
     }
 
     /**
@@ -679,10 +677,15 @@ export class Room {
             if (p2p && p2p.has(i))
                 continue;
 
-            if (!reliable && member.unreliable && member.reliability)
+            if (!reliable && member.unreliable && member.reliability) {
                 member.unreliable.send(msg);
-            else
+            } else if (!reliable) {
+                // No unreliable connection, but at least don't buffer
+                if (member.socket.bufferedAmount < 8192)
+                    member.socket.send(msg);
+            } else {
                 member.socket.send(msg);
+            }
         }
     }
 
