@@ -46,11 +46,11 @@
     });
 
     conn.on("track-started-audio", ev => {
-        ev.node.connect(ac.destination);
+        ev.playback.unsharedNode().connect(ac.destination);
     });
 
     conn.on("track-ended-audio", ev => {
-        ev.node.disconnect(ac.destination);
+        ev.playback.unsharedNode().disconnect(ac.destination);
     });
 
     conn.on("*", ev => {
