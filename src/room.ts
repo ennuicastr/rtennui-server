@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: ISC
 /*
- * Copyright (c) 2021, 2022 Yahweasel
+ * Copyright (c) 2021-2023 Yahweasel
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -278,20 +278,31 @@ class Member {
             }
 
             case prot.ids.info:
+            case prot.ids.ctcp:
                 // FIXME: Some validation
                 msg.writeUInt16LE(this.id, 0);
                 this.room.send(peer, msg);
                 break;
 
-            case prot.ids.data:
-                // FIXME: Some validation
-                msg.writeUInt16LE(this.id, 0);
-                this.room.relay(msg, {
+            case prot.ids.relay:
+            {
+                // Extract the actual data
+                const p = prot.parts.relay;
+                const targetCt = msg.readUInt8(p.data);
+                const dataMsg = msg.slice(p.data + 1 + targetCt);
+                if (dataMsg.length < 4)
+                    return this.close();
+                if (dataMsg.readUInt16LE(2) !== prot.ids.data)
+                    return this.close();
+                dataMsg.writeUInt16LE(this.id, 0);
+                console.log(`Relaying data from ${this.id}`);
+                this.room.relay(dataMsg, {
                     except: this.id,
                     reliable,
-                    p2p: this.p2p
+                    targetsFrom: msg
                 });
                 break;
+            }
 
             default:
                 console.error(`Unrecognized command ${cmd.toString(16)}`);
@@ -322,7 +333,7 @@ class Member {
                 // This is their response to our ping, handled elsewhere
                 break;
 
-            case prot.ids.data:
+            case prot.ids.relay:
                 // Can be sent unreliably or reliably
                 this.onMessage(ev, false);
                 break;
@@ -660,21 +671,44 @@ export class Room {
     relay(msg: Buffer, opts: {
         except?: number,
         reliable?: boolean,
-        p2p?: Set<number>
+        targetsFrom?: Buffer // relay message
     } = {}) {
         const except = (typeof opts.except === "number") ? opts.except : -1;
         const reliable =
             (typeof opts.reliable === "boolean") ? opts.reliable : true;
-        const p2p = opts.p2p;
+        const targetsFrom = opts.targetsFrom;
+        let targetCt = 0, targetByte = 0;
+        if (targetsFrom) {
+            targetCt = targetsFrom.readUInt8(prot.parts.relay.data);
+            targetByte = targetsFrom.readUInt8(prot.parts.relay.data + 1);
+        }
 
+        let ihi = 0, ilo = -1;
         for (let i = 0; i < this._members.length; i++) {
+            // Advance to the next target byte
+            if (targetsFrom) {
+                ilo++;
+                if (ilo >= 8) {
+                    ihi++;
+                    ilo = 0;
+                    if (ihi >= targetCt) {
+                        targetByte = 0;
+                    } else {
+                        targetByte = targetsFrom.readUInt8(
+                            prot.parts.relay.data + 1 + ihi
+                        );
+                    }
+                }
+
+                // Check if it's set
+                if (!(targetByte & (1<<ilo)))
+                    continue;
+            }
+
             if (i === except)
                 continue;
             const member = this._members[i];
             if (!member)
-                continue;
-
-            if (p2p && p2p.has(i))
                 continue;
 
             if (!reliable && member.unreliable && member.reliability) {
