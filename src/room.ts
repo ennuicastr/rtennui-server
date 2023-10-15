@@ -72,7 +72,6 @@ class Member {
         public receive: string[]
     ) {
         this.receiveSet = new Set(receive);
-        this.p2p = new Set();
         this.streamId = -1;
         this.stream = null;
         this.unreliable = null;
@@ -226,17 +225,7 @@ class Member {
             }
 
             case prot.ids.peer:
-            {
-                const p = prot.parts.peer;
-                if (msg.length < p.length)
-                    return this.close();
-                const status = !!msg.readUInt8(p.status);
-                if (status)
-                    this.p2p.add(peer);
-                else
-                    this.p2p.delete(peer);
-                break;
-            }
+                break; // No longer needed
 
             case prot.ids.stream:
             {
@@ -456,12 +445,6 @@ class Member {
     receiveSet: Set<string>;
 
     /**
-     * The peers to which this client has P2P connections.
-     * @private
-     */
-    p2p: Set<number>;
-
-    /**
      * The ID of the stream this user is currently transmitting, or -1 for no
      * stream.
      * @private
@@ -629,12 +612,6 @@ export class Room {
             );
 
             this.relay(msg);
-        }
-
-        // Forget any P2P info targetting them
-        for (const member of this._members) {
-            if (member)
-                member.p2p.delete(idx);
         }
 
         /* Report the current number of members so the main process can delete
