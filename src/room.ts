@@ -284,7 +284,6 @@ class Member {
                 if (dataMsg.readUInt16LE(2) !== prot.ids.data)
                     return this.close();
                 dataMsg.writeUInt16LE(this.id, 0);
-                console.log(`Relaying data from ${this.id}`);
                 this.room.relay(dataMsg, {
                     except: this.id,
                     reliable,
