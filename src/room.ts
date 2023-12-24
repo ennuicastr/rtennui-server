@@ -281,7 +281,8 @@ class Member {
                 const dataMsg = msg.slice(p.data + 1 + targetCt);
                 if (dataMsg.length < 4)
                     return this.close();
-                if (dataMsg.readUInt16LE(2) !== prot.ids.data)
+                const dataCmd = dataMsg.readUInt16LE(2);
+                if (dataCmd !== prot.ids.data && dataCmd !== prot.ids.ack)
                     return this.close();
                 dataMsg.writeUInt16LE(this.id, 0);
                 this.room.relay(dataMsg, {
