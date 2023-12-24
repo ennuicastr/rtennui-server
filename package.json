@@ -21,7 +21,7 @@
   "author": "Yahweasel",
   "license": "ISC",
   "dependencies": {
-    "rtennui": "^0.5.0",
+    "rtennui": "^0.6.0",
     "wrtc": "^0.4.7",
     "ws": "^8.3.0"
   },
