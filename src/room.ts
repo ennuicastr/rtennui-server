@@ -528,7 +528,7 @@ export class Room {
         }
 
         // Finish resolving the formats
-        this._resolveFormats();
+        this._resolveFormats({forceSendTo: [member]});
 
         // Tell everyone else about them
         {
@@ -706,8 +706,11 @@ export class Room {
      * transmission and receipt by all clients.
      * @param opts  Options. In particular, whether to do a dry run.
      */
-    private _resolveFormats(opts: {dryRun?: boolean} = {}) {
-        let r: string[] = null;
+    private _resolveFormats(opts: {
+        dryRun?: boolean,
+        forceSendTo?: Member[]
+    } = {}) {
+        let r: string[] = [];
         let first = true;
 
         // Find the formats that everyone can receive
@@ -718,6 +721,7 @@ export class Room {
             if (first) {
                 // Start with them
                 r = member.receive.slice(0);
+                first = false;
             } else {
                 // Intersect them
                 const mr = member.receiveSet;
@@ -755,12 +759,20 @@ export class Room {
 
         // Update
         if (!opts.dryRun) {
+            let sendTo: Member[] = this._members;
+
             // Determine if the formats have actually changed
-            if (JSON.stringify(this._formats) !== JSON.stringify(r)) {
-                // Set the new formats
+            if (JSON.stringify(this._formats) === JSON.stringify(r))
+                sendTo = [];
+            else
                 this._formats = r;
 
-                // Send them to everyone
+            // But forcibly send it to the given targets if asked
+            if (!sendTo.length && opts.forceSendTo)
+                sendTo = opts.forceSendTo;
+
+            if (sendTo.length) {
+                // Send them to the targets (usually everyone)
                 const p = prot.parts.formats;
                 const formats = Buffer.from(JSON.stringify(r));
                 const buf = net.createPacket(
@@ -768,7 +780,7 @@ export class Room {
                     65535, prot.ids.formats,
                     [[p.data, formats]]
                 );
-                for (const member of this._members) {
+                for (const member of sendTo) {
                     if (!member)
                         continue;
                     member.socket.send(buf);
