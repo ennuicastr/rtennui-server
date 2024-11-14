@@ -229,6 +229,18 @@ class Member {
         const cmd = msg.readUInt16LE(2);
 
         switch (cmd) {
+            case prot.ids.ping:
+            {
+                const p = prot.parts.pong;
+                const pong = net.createPacket(
+                    p.length,
+                    this.id, prot.ids.pong,
+                    []
+                );
+                this.socket.send(pong);
+                break;
+            }
+
             case prot.ids.rtc:
             {
                 const p = prot.parts.rtc;
@@ -385,6 +397,18 @@ class Member {
         const cmd = msg.readUInt16LE(2);
 
         switch (cmd) {
+            case prot.ids.ping:
+            {
+                const p = prot.parts.pong;
+                const pong = net.createPacket(
+                    p.length,
+                    this.id, prot.ids.pong,
+                    []
+                );
+                chan.send(pong);
+                break;
+            }
+
             case prot.ids.rping:
                 // Pong on the same channel (FIXME: flooding)
                 if (msg.length < 8)
@@ -398,7 +422,7 @@ class Member {
                 break;
 
             case prot.ids.relay:
-                // Can be sent unreliably or reliably
+                // Can be sent on any channel
                 this.onMessage(ev, reliability);
                 break;
 
