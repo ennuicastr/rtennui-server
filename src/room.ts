@@ -15,10 +15,12 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+import * as fs from "fs/promises";
+
 import * as net from "./net.js";
 import * as util from "./util.js";
 
-import rte from "rtennui/rtennui.min.js";
+import rte from "rtennui/dist/rtennui.min.js";
 const prot = rte.protocol;
 import wrtc from "wrtc";
 
@@ -27,6 +29,10 @@ import wrtc from "wrtc";
  */
 export interface RoomContainer {
     roomEmpty(r: Room): void;
+    registerSecondConnection(
+        cb: (socket: WebSocket, key: Uint8Array)=>undefined,
+        keyLength?: number
+    ): Uint8Array;
 }
 
 /**
@@ -74,9 +80,10 @@ class Member {
         this.receiveSet = new Set(receive);
         this.streamId = -1;
         this.stream = null;
-        this.unreliable = null;
-        this.unreliableMakingOffer = false;
-        this.unreliableIgnoreOffer = false;
+        this.secondaryWS = [null, null, null];
+        this.secondaryDC = [null, null];
+        this.pcMakingOffer = false;
+        this.pcIgnoreOffer = false;
         this.reliabilityProber = null;
         this.closed = false;
 
@@ -85,12 +92,12 @@ class Member {
         socket.addEventListener("error", () => this.close());
 
         // Open an unreliable connection
-        const peer = this.unreliableP =
+        const peer = this.pc =
             <RTCPeerConnection> new wrtc.RTCPeerConnection({
                 iceServers: util.iceServers
             });
 
-        socket.onmessage = ev => this.onMessage(ev);
+        socket.onmessage = ev => this.onMessage(ev, 2);
 
         peer.onnegotiationneeded = async ev => {
             if (this.closed) {
@@ -100,7 +107,7 @@ class Member {
 
             // Perfect negotiation pattern
             try {
-                this.unreliableMakingOffer = true;
+                this.pcMakingOffer = true;
                 await peer.setLocalDescription(
                     await peer.createOffer());
 
@@ -120,7 +127,7 @@ class Member {
 
             }
 
-            this.unreliableMakingOffer = false;
+            this.pcMakingOffer = false;
         };
 
         peer.onicecandidate = ev => {
@@ -155,20 +162,30 @@ class Member {
             const chan = ev.channel;
             chan.binaryType = "arraybuffer";
 
+            let reliability = 0;
+            if (chan.label === "semireliable")
+                reliability = 1;
+
             chan.addEventListener("close", () => {
-                if (this.unreliable === chan) {
-                    this.unreliable = null;
-                    this.reliabilityProber.stop();
-                    this.reliabilityProber = null;
+                if (this.secondaryDC[reliability] === chan) {
+                    this.secondaryDC[reliability] = null;
+                    if (reliability === 0) {
+                        this.reliabilityProber.stop();
+                        this.reliabilityProber = null;
+                    }
                 }
             }, {once: true});
 
-            chan.onmessage = ev => this.onUnreliableMessage(ev);
+            chan.onmessage = ev => this.onSecondaryMessage(
+                ev, chan, true, reliability
+            );
 
-            this.unreliable = chan;
-            this.reliability = true;
-            this.reliabilityProber = new rte.ReliabilityProber(
-                chan, true, reliability => this.onReliability(reliability));
+            this.secondaryDC[reliability] = chan;
+            if (reliability === 0) {
+                this.reliability = true;
+                this.reliabilityProber = new rte.ReliabilityProber(
+                    chan, true, reliability => this.onReliability(reliability));
+            }
         };
     }
 
@@ -182,14 +199,21 @@ class Member {
         this.closed = true;
         if (this.socket)
             this.socket.close();
-        if (this.unreliable)
-            this.unreliable.close();
-        if (this.unreliableP)
-            this.unreliableP.close();
+        for (const chan of this.secondaryDC) {
+            if (chan)
+                chan.close();
+        }
+        this.secondaryDC = [null, null];
+        for (const chan of this.secondaryWS) {
+            if (chan)
+                chan.close();
+        }
+        this.secondaryWS = [null, null, null];
+        if (this.pc)
+            this.pc.close();
         this.room.removeMember(this);
 
         this.socket = null;
-        this.unreliable = null;
     }
 
     /**
@@ -197,7 +221,7 @@ class Member {
      * indirectly for unreliable.
      * @private
      */
-    onMessage(ev: MessageEvent, reliable = true) {
+    onMessage(ev: MessageEvent, reliability: number) {
         const msg = new Buffer(ev.data);
         if (msg.length < 4)
             return this.close();
@@ -221,6 +245,54 @@ class Member {
                     this.room.send(peer, msg);
 
                 }
+                break;
+            }
+
+            case prot.ids.wsc:
+            {
+                const p = prot.parts.wsc.cs;
+                if (msg.length < p.length)
+                    return this.close();
+
+                const reliability = msg.readUint8(p.reliability);
+                if (reliability < 0 ||
+                    reliability >= this.secondaryWS.length) {
+                    return this.close();
+                }
+
+                // Get a connection key
+                /* FIXME: It is illegal to request multiple keys for the same
+                 * reliability, and in the current setup, doing so can DoS the
+                 * server. */
+                const key = this.room.container.registerSecondConnection(
+                    (socket: WebSocket) => {
+                        this.secondaryWS[reliability] = socket;
+                        socket.onmessage = ev => this.onSecondaryMessage(
+                            ev, socket, false, reliability
+                        );
+                        const p = prot.parts.ack;
+                        const ack = net.createPacket(
+                            p.length,
+                            this.id, prot.ids.ack,
+                            []
+                        );
+                        socket.send(ack);
+                    }
+                );
+
+                fs.writeFile(`tmp-${reliability}`, key.toString());
+
+                const rp = prot.parts.wsc.sc;
+                const reply = net.createPacket(
+                    rp.length,
+                    this.id, prot.ids.wsc,
+                    [
+                        [rp.reliability, 1, reliability],
+                        [rp.key, Buffer.from(key)]
+                    ]
+                );
+
+                this.socket.send(reply);
                 break;
             }
 
@@ -287,7 +359,7 @@ class Member {
                 dataMsg.writeUInt16LE(this.id, 0);
                 this.room.relay(dataMsg, {
                     except: this.id,
-                    reliable,
+                    reliability,
                     targetsFrom: msg
                 });
                 break;
@@ -300,10 +372,13 @@ class Member {
     }
 
     /**
-     * Called when a message is received on the unreliable socket.
+     * Called when a message is received on a secondary socket.
      * @private
      */
-    onUnreliableMessage(ev: MessageEvent) {
+    onSecondaryMessage(
+        ev: MessageEvent, chan: RTCDataChannel | WebSocket,
+        isDataChannel: boolean, reliability: number
+    ) {
         const msg = new Buffer(ev.data);
         if (msg.length < 4)
             return this.close();
@@ -315,7 +390,7 @@ class Member {
                 if (msg.length < 8)
                     return this.close();
                 msg.writeUInt16LE(prot.ids.rpong, 2);
-                this.unreliable.send(Buffer.from(msg));
+                chan.send(Buffer.from(msg));
                 break;
 
             case prot.ids.rpong:
@@ -324,7 +399,7 @@ class Member {
 
             case prot.ids.relay:
                 // Can be sent unreliably or reliably
-                this.onMessage(ev, false);
+                this.onMessage(ev, reliability);
                 break;
 
             default:
@@ -355,16 +430,16 @@ class Member {
         if (typeof data !== "object" || data === null)
             return this.close();
 
-        const peer: RTCPeerConnection = this.unreliableP;
+        const peer: RTCPeerConnection = this.pc;
         if (!peer)
             return;
 
         // Perfect negotiation pattern
         try {
             if (data.description) {
-                const ignoreOffer = this.unreliableIgnoreOffer =
+                const ignoreOffer = this.pcIgnoreOffer =
                     (data.description.type === "offer") &&
-                    (this.unreliableMakingOffer ||
+                    (this.pcMakingOffer ||
                      peer.signalingState !== "stable");
 
                 if (ignoreOffer)
@@ -390,7 +465,7 @@ class Member {
                 try {
                     await peer.addIceCandidate(data.candidate);
                 } catch (ex) {
-                    if (!this.unreliableIgnoreOffer)
+                    if (!this.pcIgnoreOffer)
                         throw ex;
                 }
 
@@ -403,28 +478,32 @@ class Member {
     }
 
     /**
-     * The unreliable connection for this user.
-     * @private
+     * Any secondary WS connections for this user.
      */
-    unreliable: RTCDataChannel;
+    secondaryWS: [WebSocket, WebSocket, WebSocket];
+
+    /**
+     * Any secondary DC connections for this user.
+     */
+    secondaryDC: [RTCDataChannel, RTCDataChannel];
 
     /**
      * The associated RTC connection.
      * @private
      */
-    unreliableP: RTCPeerConnection;
+    pc: RTCPeerConnection;
 
     /**
      * Perfect negotiation: Are we currently making an offer?
      * @private
      */
-    unreliableMakingOffer: boolean;
+    pcMakingOffer: boolean;
 
     /**
      * Perfect negotiation: Are we currently ignoring offers?
      * @private
      */
-    unreliableIgnoreOffer: boolean;
+    pcIgnoreOffer: boolean;
 
     /**
      * Prober for whether the unreliable connection is actually reliable.
@@ -647,12 +726,12 @@ export class Room {
      */
     relay(msg: Buffer, opts: {
         except?: number,
-        reliable?: boolean,
+        reliability?: number,
         targetsFrom?: Buffer // relay message
     } = {}) {
         const except = (typeof opts.except === "number") ? opts.except : -1;
-        const reliable =
-            (typeof opts.reliable === "boolean") ? opts.reliable : true;
+        const reliability =
+            (typeof opts.reliability === "number") ? opts.reliability : 2;
         const targetsFrom = opts.targetsFrom;
         let targetCt = 0, targetByte = 0;
         if (targetsFrom) {
@@ -688,14 +767,25 @@ export class Room {
             if (!member)
                 continue;
 
-            if (!reliable && member.unreliable && member.reliability) {
-                member.unreliable.send(msg);
-            } else if (!reliable) {
-                // No unreliable connection, but at least don't buffer
-                if (member.socket.bufferedAmount < 8192)
+            if (reliability < 2 /* reliable */) {
+                const bufferLimit = reliability ? 8192 : 1024;
+                if (member.secondaryDC[reliability] && member.reliability) {
+                    member.secondaryDC[reliability].send(msg);
+
+                } else if (member.secondaryWS[reliability]) {
+                    if (member.secondaryWS[reliability].bufferedAmount <
+                        bufferLimit) {
+                        member.secondaryWS[reliability].send(msg);
+                    }
+
+                } else if (member.socket.bufferedAmount < bufferLimit) {
                     member.socket.send(msg);
+
+                }
+
             } else {
-                member.socket.send(msg);
+                (member.secondaryWS[2] || member.socket).send(msg);
+
             }
         }
     }

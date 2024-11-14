@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: ISC
 /*
- * Copyright (c) 2021, 2022 Yahweasel
+ * Copyright (c) 2021-2024 Yahweasel
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-import rte from "rtennui/rtennui.min.js";
+import rte from "rtennui/dist/rtennui.min.js";
 const prot = rte.protocol;
 
 import * as room from "./room.js";
@@ -45,6 +45,7 @@ export class RTEnnuiServer {
         private _acceptLogin: AcceptLoginFunction
     ) {
         this._rooms = Object.create(null);
+        this._secondConnectionCBs = Object.create(null);
     }
 
     /**
@@ -73,10 +74,12 @@ export class RTEnnuiServer {
             return die();
         const msg = Buffer.from(ab);
 
-        // The message must be a login
+        // The message must be a login or a wscLogin (second connection login)
         if (msg.length < 4)
             return die();
         const cmd = msg.readUInt16LE(2);
+        if (cmd === prot.ids.wscLogin)
+            return this._acceptSecondConnection(socket, msg);
         if (cmd !== prot.ids.login)
             return die();
 
@@ -104,11 +107,63 @@ export class RTEnnuiServer {
     }
 
     /**
+     * @private
+     * Accept a secondary connection.
+     */
+    private async _acceptSecondConnection(socket: WebSocket, msg: Buffer) {
+        function die() {
+            socket.close();
+        }
+
+        const p = prot.parts.wscLogin;
+        if (msg.byteLength < p.length)
+            return die();
+
+        const key = new Uint8Array(msg.slice(p.key, p.key + 8));
+        const keyStr = key.toString();
+        const cb = this._secondConnectionCBs[keyStr];
+        if (!cb)
+            return die();
+        delete this._secondConnectionCBs[keyStr];
+        cb(socket, key);
+    }
+
+    /**
+     * @private
+     * Register a secondary connection and get an appropriate key.
+     */
+    registerSecondConnection(
+        cb: (socket: WebSocket, key: Uint8Array)=>unknown,
+        keyLength = 8
+    ): Uint8Array {
+        const key = new Uint8Array(keyLength);
+
+        while (true) {
+            for (let i = 0; i < key.length; i++)
+                key[i] = Math.random() * 0x100;
+            const keyStr = key.toString();
+            if (!this._secondConnectionCBs[keyStr]) {
+                this._secondConnectionCBs[keyStr] = cb;
+                return key;
+            }
+        }
+    }
+
+    /**
+     * @private
      * Called when a room is empty to destroy it.
      */
     roomEmpty(r: room.Room) {
         delete this._rooms[r.id];
     }
+
+    /**
+     * Callbacks for later secondary connections.
+     */
+    private _secondConnectionCBs: Record<
+        string,
+        (socket: WebSocket, key: Uint8Array)=>unknown
+    >;
 
     /**
      * All of the current rooms.
