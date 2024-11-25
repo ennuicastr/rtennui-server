@@ -1,5 +1,4 @@
 .*.swp
 libav/
 node_modules/
-package-lock.json
 src/*.js
