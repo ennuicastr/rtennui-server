@@ -151,6 +151,15 @@ export class RTEnnuiServer {
 
     /**
      * @private
+     * Deregister an unused secondary connection key.
+     */
+    deregisterSecondConnectionKey(key: Uint8Array) {
+        const keyStr = key.toString();
+        delete this._secondConnectionCBs[keyStr];
+    }
+
+    /**
+     * @private
      * Called when a room is empty to destroy it.
      */
     roomEmpty(r: room.Room) {

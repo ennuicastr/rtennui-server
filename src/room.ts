@@ -33,6 +33,7 @@ export interface RoomContainer {
         cb: (socket: WebSocket, key: Uint8Array)=>undefined,
         keyLength?: number
     ): Uint8Array;
+    deregisterSecondConnectionKey(key: Uint8Array): void;
 }
 
 /**
@@ -209,6 +210,10 @@ class Member {
                 chan.close();
         }
         this.secondaryWS = [null, null, null];
+        for (const key of this.secondaryKeys) {
+            if (key)
+                this.room.container.deregisterSecondConnectionKey(key);
+        }
         if (this.pc)
             this.pc.close();
         this.room.removeMember(this);
@@ -272,12 +277,14 @@ class Member {
                     return this.close();
                 }
 
+                // Only one key per level
+                if (this.secondaryKeys[reliability])
+                    return this.close();
+
                 // Get a connection key
-                /* FIXME: It is illegal to request multiple keys for the same
-                 * reliability, and in the current setup, doing so can DoS the
-                 * server. */
                 const key = this.room.container.registerSecondConnection(
                     (socket: WebSocket) => {
+                        this.secondaryKeys[reliability] = null;
                         this.secondaryWS[reliability] = socket;
                         socket.onmessage = ev => this.onSecondaryMessage(
                             ev, socket, false, reliability
@@ -291,6 +298,7 @@ class Member {
                         socket.send(ack);
                     }
                 );
+                this.secondaryKeys[reliability] = key;
 
                 fs.writeFile(`tmp-${reliability}`, key.toString());
 
@@ -500,6 +508,11 @@ class Member {
 
         }
     }
+
+    /**
+     * Connection keys for secondary requests from this client.
+     */
+    secondaryKeys: [Uint8Array | null, Uint8Array | null, Uint8Array | null] = [null, null, null];
 
     /**
      * Any secondary WS connections for this user.
