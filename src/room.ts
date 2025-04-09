@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: ISC
 /*
- * Copyright (c) 2021-2023 Yahweasel
+ * Copyright (c) 2021-2025 Yahweasel
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -374,8 +374,11 @@ class Member {
                 if (dataMsg.length < 4)
                     return this.close();
                 const dataCmd = dataMsg.readUInt16LE(2);
-                if (dataCmd !== prot.ids.data && dataCmd !== prot.ids.ack)
+                if (dataCmd !== prot.ids.data &&
+                    dataCmd !== prot.ids.ack &&
+                    dataCmd !== prot.ids.ctcp) {
                     return this.close();
+                }
                 dataMsg.writeUInt16LE(this.id, 0);
                 this.room.relay(dataMsg, {
                     except: this.id,
